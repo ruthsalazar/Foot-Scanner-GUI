@@ -1,0 +1,69 @@
+// --- Pin Definitions ---
+const int dirY = 40;  // Direction pin for Y-axis
+const int stepY = 41; // Step pin for Y-axis
+
+int currOffsetY = 0;
+char command = '-';
+
+void setup() {
+  Serial.begin(57600);
+  pinMode(dirY, OUTPUT);
+  pinMode(stepY, OUTPUT);
+}
+
+void loop() {
+  if (Serial.available()) {
+    command = Serial.read();
+    Serial.print("Received command: ");
+    Serial.println(command);
+
+    switch (command) {
+      case 'F':  // Forward
+        forwardMov(1000);
+        break;
+      case 'R':  // Reverse
+        reverseMov(1000);
+        break;
+      case 'Z':  // Reset to origin
+        resetPos();
+        break;
+      case 'G':  // Scan sequence (e.g. 8 forward steps)
+        for (int i = 0; i < 20; i++) {
+          forwardMov(1000);
+          delay(500);
+        }
+        Serial.write('D');  // Signal scan complete
+        break;
+    }
+
+    command = '-';  // Clear command
+  }
+}
+
+// --- Movement Functions ---
+void forwardMov(long distance) {
+  digitalWrite(dirY, LOW);  // Forward direction
+  for (int x = 0; x < distance; x++) {
+    digitalWrite(stepY, HIGH);
+    delayMicroseconds(60);
+    digitalWrite(stepY, LOW);
+    delayMicroseconds(60);
+  }
+  currOffsetY += distance;
+}
+
+void reverseMov(long distance) {
+  digitalWrite(dirY, HIGH);  // Reverse direction
+  for (int x = 0; x < distance; x++) {
+    digitalWrite(stepY, HIGH);
+    delayMicroseconds(60);
+    digitalWrite(stepY, LOW);
+    delayMicroseconds(60);
+  }
+  currOffsetY -= distance;
+}
+
+void resetPos() {
+  reverseMov(currOffsetY);
+  currOffsetY = 0;
+}
