@@ -1,0 +1,204 @@
+function footScannerGUI()
+    a = serialport("COM5", 57600);
+    pause(1);
+    configureTerminator(a, "LF");
+    
+    % Create main figure
+    fig = uifigure('Name', 'Foot Scanner Intake', 'Position', [100 100 400 300]);
+    fig.UserData.serialObj = a;
+
+    % First screen components
+    patientIDField = uieditfield(fig, 'text', 'Position', [130 240 100 22]);
+    uilabel(fig, 'Position', [20 240 100 22], 'Text', 'Patient ID:');
+    sizeField = uieditfield(fig, 'text', 'Position', [130 190 100 22]);
+    uilabel(fig, 'Position', [20 190 100 22], 'Text', 'Shoe Size:');
+
+    uilabel(fig, 'Position', [20 140 100 22], 'Text', 'Category:');
+    genderGroup = uibuttongroup(fig, ...
+        'Position', [130 120 200 50], ...
+        'BorderType', 'none');  
+
+    menBtn = uiradiobutton(genderGroup, ...
+        'Text', 'Men', ...
+        'Position', [0 25 100 22]);
+    
+    womenBtn = uiradiobutton(genderGroup, ...
+        'Text', 'Women', ...
+        'Position', [100 25 100 22]);
+
+
+    continueBtn = uibutton(fig, ...
+        'Text', 'Continue', ...
+        'Position', [150 80 100 30], ...
+        'ButtonPushedFcn', @(btn,event) ...
+        savePatientInfoAndShowWeightScreen());
+
+    function savePatientInfoAndShowWeightScreen()
+        fig.UserData.patientID = patientIDField.Value;
+        fig.UserData.shoeSize  = sizeField.Value;
+        fig.UserData.gender    = genderGroup.SelectedObject.Text;
+        showWeightScreen();
+    end
+
+
+    % Second screen function
+    function showWeightScreen(patientID,shoeSize,gender)
+        
+        delete(fig.Children);
+
+        patientID = fig.UserData.patientID;
+        shoeSize  = fig.UserData.shoeSize;
+        gender    = fig.UserData.gender;
+
+        % Weight distribution label
+        uilabel(fig, ...
+            'Text', 'Weight Distribution: 0.5', ...
+            'FontSize', 16, ...
+            'Position', [100 180 200 30]);
+
+        footGroup = uibuttongroup(fig, ...
+            'Position', [130 220 150 50], ...
+            'BorderType', 'none');
+        
+        leftBtn = uiradiobutton(footGroup, ...
+            'Text', 'Left', ...
+            'Position', [0 25 100 22]);
+        
+        rightBtn = uiradiobutton(footGroup, ...
+            'Text', 'Right', ...
+            'Position', [100 25 100 22]);
+        
+        uilabel(fig, 'Position', [20 235 100 22], 'Text', 'Foot:');
+
+        % Begin Scan button
+        uibutton(fig, ...
+            'Text', 'Begin Scan', ...
+            'Position', [80 100 110 30], ...
+            'ButtonPushedFcn', @(btn,event) beginScan(fig, patientID, footGroup.SelectedObject.Text));
+
+        % Advanced Settings button
+        uibutton(fig, ...
+            'Text', 'Advanced Settings', ...
+            'Position', [220 100 110 30], ...
+            'ButtonPushedFcn', @(btn,event) openAdvancedSettings());
+
+    end
+
+    % Placeholder callbacks
+    function beginScan(a, patientID, footSide)
+        a = fig.UserData.serialObj;
+
+        % Clear previous screen
+        delete(fig.Children);  % Remove all UI components
+
+        scanDate = datestr(now, 'yyyy-mm-dd');
+        basePath = 'C:\BME\U of A\ENG 498\MATLAB code';
+        
+        % Patient folder
+        patientFolder = fullfile(basePath, patientID);
+        if ~exist(patientFolder, 'dir')
+            mkdir(patientFolder);
+        end
+        
+        % Foot side folder
+        footFolder = fullfile(patientFolder, footSide);
+        if ~exist(footFolder, 'dir')
+            mkdir(footFolder);
+        end
+        
+        dateFolder = fullfile(footFolder, scanDate);
+        if ~exist(dateFolder, 'dir')
+            mkdir(dateFolder);
+        end
+
+        disp("Serial port object:");
+        disp(a);
+
+        % Create new scan screen
+        uilabel(fig, ...
+            'Text', 'Scan in progress...', ...
+            'FontSize', 16, ...
+            'Position', [120 240 200 30]);
+
+        % Create a progress bar background
+        bg = uilabel(fig, ...
+            'BackgroundColor', [0.9 0.9 0.9], ...
+            'Position', [100 180 200 20]);
+    
+        % Create a progress bar foreground
+        fg = uilabel(fig, ...
+            'BackgroundColor', [0.2 0.6 1], ...
+            'Position', [100 180 0 20]);  % Start at 0 width
+        % Create a label to show numeric progress
+        progressText = uilabel(fig, ...
+            'Text', 'Position: 0', ...
+            'Position', [150 150 100 22]);
+
+        flush(a);
+        pause(0.1);
+
+        disp("Sending G to Teensy...");
+        writeline(a, 'G');  % Send 'G' to trigger scan
+        
+        maxSteps = 16000;
+
+        while true
+            if a.NumBytesAvailable > 0
+                msg = strtrim(readline(a));
+        
+                if strcmp(msg, "D")
+                    fg.Position(3) = 200;
+                    progressText.Text = 'Scan complete!';
+                    uilabel(fig, ...
+                        'Text', 'Scan complete!', ...
+                        'FontSize', 18, ...
+                        'FontWeight', 'bold', ...
+                        'Position', [120 100 200 30]);
+        
+                    writeline(a, 'Z');  % ✅ Send reset command
+                    
+                    break;
+
+                elseif ~isempty(str2double(msg)) && ~isnan(str2double(msg))
+                    currentPos = str2double(msg);
+                    progress = min(currentPos / maxSteps, 1);
+                    fg.Position(3) = 200 * progress;
+                    progressText.Text = ['Position: ', num2str(currentPos)];
+                end
+            end
+            pause(0.05);
+        end
+
+        % ✅ Remove progress bar components
+        delete(fg);
+        delete(bg);
+        delete(progressText);
+
+        while true
+            if a.NumBytesAvailable > 0
+                msg = strtrim(readline(a));
+                if strcmp(msg, "ZDONE")
+                    if isvalid(fig)
+                    uilabel(fig, ...
+                        'Text', 'Motor returned to origin.', ...
+                        'FontSize', 14, ...
+                        'Position', [120 70 200 30]);
+
+                    uibutton(fig, ...
+                        'Text', 'Start New Scan', ...
+                        'Position', [140 30 120 30], ...
+                        'ButtonPushedFcn', @(btn,event) showWeightScreen());
+                    end
+                    break;
+                end
+            end
+            pause(0.05);
+        end
+
+    end
+
+    function openAdvancedSettings()
+        uialert(fig, 'Advanced settings not yet implemented.', 'Settings');
+    end
+
+end
